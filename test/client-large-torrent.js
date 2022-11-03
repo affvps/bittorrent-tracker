@@ -1,40 +1,41 @@
-var Client = require('../')
-var common = require('./common')
-var fs = require('fs')
-var parseTorrent = require('parse-torrent')
-var path = require('path')
-var test = require('tape')
+const Client = require('../')
+const common = require('./common')
+const fixtures = require('webtorrent-fixtures')
+const test = require('tape')
 
-var torrent = fs.readFileSync(path.join(__dirname, 'torrents/sintel-5gb.torrent'))
-var parsedTorrent = parseTorrent(torrent)
-var peerId = new Buffer('01234567890123456789')
+const peerId = Buffer.from('01234567890123456789')
 
 function testLargeTorrent (t, serverType) {
   t.plan(9)
 
-  common.createServer(t, serverType, function (server, announceUrl) {
-    parsedTorrent.announce = [ announceUrl ]
-    var client = new Client(peerId, 6881, parsedTorrent, { wrtc: {} })
+  common.createServer(t, serverType, (server, announceUrl) => {
+    const client = new Client({
+      infoHash: fixtures.sintel.parsedTorrent.infoHash,
+      peerId,
+      port: 6881,
+      announce: announceUrl,
+      wrtc: {}
+    })
 
     if (serverType === 'ws') common.mockWebsocketTracker(client)
-    client.on('error', function (err) { t.error(err) })
-    client.on('warning', function (err) { t.error(err) })
+    client.on('error', err => { t.error(err) })
+    client.on('warning', err => { t.error(err) })
 
-    client.once('update', function (data) {
+    client.once('update', data => {
       t.equal(data.announce, announceUrl)
       t.equal(typeof data.complete, 'number')
       t.equal(typeof data.incomplete, 'number')
 
       client.update()
 
-      client.once('update', function (data) {
+      client.once('update', data => {
         t.equal(data.announce, announceUrl)
         t.equal(typeof data.complete, 'number')
         t.equal(typeof data.incomplete, 'number')
 
         client.stop()
 
-        client.once('update', function (data) {
+        client.once('update', data => {
           t.equal(data.announce, announceUrl)
           t.equal(typeof data.complete, 'number')
           t.equal(typeof data.incomplete, 'number')
@@ -49,14 +50,14 @@ function testLargeTorrent (t, serverType) {
   })
 }
 
-test('http: large torrent: client.start()', function (t) {
+test('http: large torrent: client.start()', t => {
   testLargeTorrent(t, 'http')
 })
 
-test('udp: large torrent: client.start()', function (t) {
+test('udp: large torrent: client.start()', t => {
   testLargeTorrent(t, 'udp')
 })
 
-test('ws: large torrent: client.start()', function (t) {
+test('ws: large torrent: client.start()', t => {
   testLargeTorrent(t, 'ws')
 })

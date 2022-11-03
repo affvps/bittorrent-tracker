@@ -1,19 +1,21 @@
-# bittorrent-tracker [![travis][travis-image]][travis-url] [![npm][npm-image]][npm-url] [![downloads][downloads-image]][downloads-url]
+# bittorrent-tracker [![ci][ci-image]][ci-url] [![npm][npm-image]][npm-url] [![downloads][downloads-image]][downloads-url] [![javascript style guide][standard-image]][standard-url]
 
-[travis-image]: https://img.shields.io/travis/feross/bittorrent-tracker/master.svg
-[travis-url]: https://travis-ci.org/feross/bittorrent-tracker
+[ci-image]: https://img.shields.io/github/workflow/status/webtorrent/bittorrent-tracker/ci/master
+[ci-url]: https://github.com/webtorrent/bittorrent-tracker/actions
 [npm-image]: https://img.shields.io/npm/v/bittorrent-tracker.svg
 [npm-url]: https://npmjs.org/package/bittorrent-tracker
 [downloads-image]: https://img.shields.io/npm/dm/bittorrent-tracker.svg
 [downloads-url]: https://npmjs.org/package/bittorrent-tracker
+[standard-image]: https://img.shields.io/badge/code_style-standard-brightgreen.svg
+[standard-url]: https://standardjs.com
 
 #### Simple, robust, BitTorrent tracker (client & server) implementation
 
-![tracker](https://raw.githubusercontent.com/feross/bittorrent-tracker/master/img.png)
+![tracker visualization](img/img.png)
 
 Node.js implementation of a [BitTorrent tracker](https://wiki.theory.org/BitTorrentSpecification#Tracker_HTTP.2FHTTPS_Protocol), client and server.
 
-A **BitTorrent tracker** is an web service which responds to requests from BitTorrent
+A **BitTorrent tracker** is a web service which responds to requests from BitTorrent
 clients. The requests include metrics from clients that help the tracker keep overall
 statistics about the torrent. The response includes a peer list that helps the client
 participate in the torrent swarm.
@@ -31,9 +33,14 @@ This module is used by [WebTorrent](http://webtorrent.io).
 - Supports tracker "scrape" extension
 - Robust and well-tested
   - Comprehensive test suite (runs entirely offline, so it's reliable)
-  - Used by popular clients: [WebTorrent](http://webtorrent.io), [peerflix](https://github.com/mafintosh/peerflix), and [playback](https://mafintosh.github.io/playback/)
+  - Used by popular clients: [WebTorrent](http://webtorrent.io), [peerflix](https://www.npmjs.com/package/peerflix), and [playback](https://mafintosh.github.io/playback/)
+- Tracker statistics available via web interface at `/stats` or JSON data at `/stats.json`
 
-Also see [bittorrent-dht](https://github.com/feross/bittorrent-dht).
+Also see [bittorrent-dht](https://www.npmjs.com/package/bittorrent-dht).
+
+### Tracker stats
+
+![Screenshot](img/trackerStats.png)
 
 ## install
 
@@ -49,23 +56,23 @@ To connect to a tracker, just do this:
 
 ```js
 var Client = require('bittorrent-tracker')
-var parseTorrent = require('parse-torrent')
-var fs = require('fs')
 
-var torrent = fs.readFileSync(__dirname + '/torrents/bitlove-intro.torrent')
-var parsedTorrent = parseTorrent(torrent) // { infoHash: 'xxx', length: xx, announce: ['xx', 'xx'] }
+var requiredOpts = {
+  infoHash: new Buffer('012345678901234567890'), // hex string or Buffer
+  peerId: new Buffer('01234567890123456789'), // hex string or Buffer
+  announce: [], // list of tracker server urls
+  port: 6881 // torrent client port, (in browser, optional)
+}
 
-var peerId = new Buffer('01234567890123456789')
-var port = 6881
-
-// optional options dictionary
-var opts = {
+var optionalOpts = {
   // RTCPeerConnection config object (only used in browser)
   rtcConfig: {},
-  // custom webrtc impl, useful in node to specify [wrtc](https://npmjs.com/package/wrtc)
+  // User-Agent header for http requests
+  userAgent: '',
+  // Custom webrtc impl, useful in node to specify [wrtc](https://npmjs.com/package/wrtc)
   wrtc: {},
   getAnnounceOpts: function () {
-    // provide a callback that will be called whenever announce() is called
+    // Provide a callback that will be called whenever announce() is called
     // internally (on timer), or by the user
     return {
       uploaded: 0,
@@ -73,10 +80,48 @@ var opts = {
       left: 0,
       customParam: 'blah' // custom parameters supported
     }
-  }
+  },
+  // Proxy config object
+  proxyOpts: {
+      // Socks proxy options (used to proxy requests in node)
+      socksProxy: {
+          // Configuration from socks module (https://github.com/JoshGlazebrook/socks)
+          proxy: {
+              // IP Address of Proxy (Required)
+              ipaddress: "1.2.3.4",
+              // TCP Port of Proxy (Required)
+              port: 1080,
+              // Proxy Type [4, 5] (Required)
+              // Note: 4 works for both 4 and 4a.
+              // Type 4 does not support UDP association relay 
+              type: 5,
+              
+              // SOCKS 4 Specific:
+              
+              // UserId used when making a SOCKS 4/4a request. (Optional)
+              userid: "someuserid",
+
+              // SOCKS 5 Specific:
+      
+              // Authentication used for SOCKS 5 (when it's required) (Optional)
+              authentication: {
+                  username: "Josh",
+                  password: "somepassword"
+              }
+          },
+          
+          // Amount of time to wait for a connection to be established. (Optional)
+          // - defaults to 10000ms (10 seconds)
+          timeout: 10000
+      },
+      // NodeJS HTTP agents (used to proxy HTTP and Websocket requests in node)
+      // Populated with Socks.Agent if socksProxy is provided
+      httpAgent: {},
+      httpsAgent: {}
+  },
 }
 
-var client = new Client(peerId, port, parsedTorrent)
+var client = new Client(requiredOpts)
 
 client.on('error', function (err) {
   // fatal client error!
@@ -137,12 +182,14 @@ client.on('scrape', function (data) {
 To start a BitTorrent tracker server to track swarms of peers:
 
 ```js
-var Server = require('bittorrent-tracker').Server
+const Server = require('bittorrent-tracker').Server
 
-var server = new Server({
+const server = new Server({
   udp: true, // enable udp server? [default=true]
   http: true, // enable http server? [default=true]
   ws: true, // enable websocket server? [default=true]
+  stats: true, // enable web-based statistics? [default=true]
+  trustProxy: false, // enable trusting x-forwarded-for header for remote IP [default=false]
   filter: function (infoHash, params, cb) {
     // Blacklist/whitelist function for allowing/disallowing torrents. If this option is
     // omitted, all torrents are allowed. It is possible to interface with a database or
@@ -154,11 +201,15 @@ var server = new Server({
 
     // This example only allows one torrent.
 
-    var allowed = (infoHash === 'aaa67059ed6bd08362da625b3ae77f6f4a075aaa')
-    cb(allowed)
-
-    // In addition to returning a boolean (`true` for allowed, `false` for disallowed),
-    // you can return an `Error` object to disallow and provide a custom reason.
+    const allowed = (infoHash === 'aaa67059ed6bd08362da625b3ae77f6f4a075aaa')
+    if (allowed) {
+      // If the callback is passed `null`, the torrent will be allowed.
+      cb(null)
+    } else {
+      // If the callback is passed an `Error` object, the torrent will be disallowed
+      // and the error's `message` property will be given as the reason.
+      cb(new Error('disallowed torrent'))
+    }
   }
 })
 
@@ -179,12 +230,34 @@ server.on('warning', function (err) {
 
 server.on('listening', function () {
   // fired when all requested servers are listening
-  console.log('listening on http port:' + server.http.address().port)
-  console.log('listening on udp port:' + server.udp.address().port)
+
+  // HTTP
+  const httpAddr = server.http.address()
+  const httpHost = httpAddr.address !== '::' ? httpAddr.address : 'localhost'
+  const httpPort = httpAddr.port
+  console.log(`HTTP tracker: http://${httpHost}:${httpPort}/announce`)
+
+  // UDP
+  const udpAddr = server.udp.address()
+  const udpHost = udpAddr.address
+  const udpPort = udpAddr.port
+  console.log(`UDP tracker: udp://${udpHost}:${udpPort}`)
+
+  // WS
+  const wsAddr = server.ws.address()
+  const wsHost = wsAddr.address !== '::' ? wsAddr.address : 'localhost'
+  const wsPort = wsAddr.port
+  console.log(`WebSocket tracker: ws://${wsHost}:${wsPort}`)
+
 })
 
+
 // start tracker server listening! Use 0 to listen on a random free port.
-server.listen(port, hostname, onlistening)
+const port = 0
+const hostname = "localhost"
+server.listen(port, hostname, () => {
+  // Do something on listening...
+})
 
 // listen for individual tracker messages from peers:
 
@@ -217,7 +290,7 @@ Scraping multiple torrent info is possible with a static `Client.scrape` method:
 
 ```js
 var Client = require('bittorrent-tracker')
-Client.scrape(announceUrl, [ infoHash1, infoHash2 ], function (err, results) {
+Client.scrape({ announce: announceUrl, infoHash: [ infoHash1, infoHash2 ]}, function (err, results) {
   results[infoHash1].announce
   results[infoHash1].infoHash
   results[infoHash1].complete
@@ -229,6 +302,12 @@ Client.scrape(announceUrl, [ infoHash1, infoHash2 ], function (err, results) {
 ````
 
 ## command line
+
+Install `bittorrent-tracker` globally:
+
+```sh
+$ npm install -g bittorrent-tracker
+```
 
 Easily start a tracker server:
 
@@ -260,10 +339,8 @@ $ bittorrent-tracker --help
     -q, --quiet          only show error output
     -s, --silent         show no output
     -v, --version        print the current version
-
-  Please report bugs!  https://github.com/feross/bittorrent-tracker/issues
 ```
 
 ## license
 
-MIT. Copyright (c) [Feross Aboukhadijeh](http://feross.org).
+MIT. Copyright (c) [Feross Aboukhadijeh](https://feross.org) and [WebTorrent, LLC](https://webtorrent.io).
